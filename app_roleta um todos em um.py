@@ -2,7 +2,7 @@
 import streamlit as st
 from collections import Counter
 
-# --- CLASSE 'AnalistaRoleta' ATUALIZADA COM A LÓGICA CORRIGIDA ---
+# --- CLASSE 'AnalistaRoleta' ATUALIZADA COM LÓGICA REFINADA ---
 class AnalistaRoleta:
     def __init__(self):
         self.historico = []
@@ -57,75 +57,96 @@ class AnalistaRoleta:
         return mapa
 
     def adicionar_numero(self, numero):
-        # A nova lógica de inserção garante que o número mais recente fique na posição 0
         if 0 <= numero <= 36:
             self.historico.insert(0, numero)
             if len(self.historico) > 20:
                 self.historico.pop()
 
     def _get_terminais_recentes(self, quantidade):
-        # Lê os terminais do início da lista (os mais recentes)
         return [self.NUMERO_INFO[n]['terminal'] for n in self.historico[:quantidade]]
 
     def _calcular_valor_falso(self, num):
         if num >= 10:
             return (num // 10 + num % 10) % 10
         return None
+        
+    # --- NOVA FUNÇÃO DE DOBRA/METADE REFINADA ---
+    def _checar_dobra_metade(self):
+        if len(self.historico) < 2: return None
+        h = self.historico
+        
+        # Procura por um gatilho de dobra/metade (exato ou próximo) no histórico recente
+        gatilho_encontrado = None
+        for i in range(len(h) - 1, 0, -1):
+            n1, n2 = h[i], h[i-1] # n1 é o mais antigo, n2 o mais recente
+            if abs(n2 - (n1 * 2)) <= 1 or abs(n2 - (n1 / 2)) <= 1:
+                gatilho_encontrado = f"{n1} -> {n2}"
+                break
+        
+        if gatilho_encontrado:
+            ultimo_num = h[0]
+            dobra = ultimo_num * 2
+            metade = ultimo_num // 2
+            alvos = {n for n in [dobra, dobra-1, dobra+1, metade, metade-1, metade+1] if 0 <= n <= 36}
+            if alvos:
+                return {"analise": f"Padrão Dobra/Metade Ativo (visto: {gatilho_encontrado}).",
+                        "estrategia": f"Analisando {ultimo_num}, apostar na região dos alvos próximos: {sorted(list(alvos))}."}
+        return None
 
     def analisar(self):
         if len(self.historico) < 5:
             return {"analise": "Aguardando mais números...", "estrategia": "Insira pelo menos 5 números."}
 
-        h = self.historico # O mais recente está em h[0]
+        h = self.historico
         terminais_h = [self.NUMERO_INFO[n]['terminal'] for n in h]
 
-        # --- ESTRATÉGIAS DO MÓDULO 2.0 (MAIOR PRIORIDADE) ---
-        # LÓGICA CORRIGIDA para ler o tempo de tela corretamente (mais recente primeiro)
+        # --- ORDEM DE PRIORIDADE DAS ANÁLISES ---
 
-        # 1. Padrões de Cavalo com Quebra (Ex: ...Quebra, Lateral, Lateral)
+        # 1. Padrão Dobra/Metade (Nova Lógica Refinada)
+        resultado_dobra = self._checar_dobra_metade()
+        if resultado_dobra:
+            return resultado_dobra
+            
+        # 2. Padrões de Cavalo com Quebra
         if len(h) >= 3:
-            # A sequência de eventos é: O 3º mais recente (h[2]) foi a quebra,
-            # seguido pelos dois laterais (h[1] e h[0]).
-            par_terminais = tuple(sorted([terminais_h[0], terminais_h[1]]))
+            par_terminais = tuple(sorted([terminais_h[1], terminais_h[2]]))
             if par_terminais in self.CAVALOS_LATERAIS_PARA_CENTRAL:
                 central_alvo = self.CAVALOS_LATERAIS_PARA_CENTRAL[par_terminais]
                 trindade = set(list(par_terminais) + [central_alvo])
-                # Verifica se o número ANTES do par foi a quebra
-                if terminais_h[2] not in trindade:
-                    return {"analise": f"Padrão de Cavalo com Quebra! Par ({terminais_h[1]},{terminais_h[0]}) precedido pela quebra {h[2]}.",
+                if terminais_h[0] not in trindade:
+                    return {"analise": f"Padrão de Cavalo com Quebra! Par ({terminais_h[2]},{terminais_h[1]}) + Quebra em {h[0]}.",
                             "estrategia": f"Apostar na região do Terminal {central_alvo}."}
 
-        # 2. Padrão Vai e Vem (A -> B -> A)
+        # 3. Padrão Vai e Vem
         if len(h) >= 3:
             secao_a, secao_b, secao_c = self.NUMERO_INFO[h[2]]['secao'], self.NUMERO_INFO[h[1]]['secao'], self.NUMERO_INFO[h[0]]['secao']
             if secao_a == secao_c and secao_a != secao_b:
                 return {"analise": f"Gatilho Vai e Vem! Alternância entre {secao_a} e {secao_b}.",
                         "estrategia": f"Apostar na região de {h[1]}, buscando retorno para {secao_b}."}
 
-        # 3. Padrão Falso -> Verdadeiro
+        # 4. Padrão Falso -> Verdadeiro
         if len(h) >= 2:
             vf_penultimo = self._calcular_valor_falso(h[1])
-            if vf_penultimo is not None and vf_penultimo == terminais_h[0]: # Se o "falso" anterior previu o "verdadeiro" atual
+            if vf_penultimo is not None and vf_penultimo == terminais_h[0]:
                 vf_atual = self._calcular_valor_falso(h[0])
                 if vf_atual is not None:
                     return {"analise": f"Padrão Falso/Verdadeiro Ativo! {h[0]} é um T{vf_atual} Falso.",
                             "estrategia": f"Apostar na região do Terminal {vf_atual} Verdadeiro."}
 
-        # --- ESTRATÉGIAS ORIGINAIS (MENOR PRIORIDADE) ---
-        
-        # 4. Manipulação de Terminal
+        # 5. Manipulação de Terminal
         terminais = self._get_terminais_recentes(7)
-        terminal_dominante = max(set(terminais), key=terminais.count)
-        contagem = terminais.count(terminal_dominante)
-        if contagem >= 4:
-            if contagem >= 5: # Saturação
-                disfarçados_str = ", ".join(map(str, sorted(list(self.DISFARCADOS[terminal_dominante]))))
-                return {"analise": f"Manipulação de T{terminal_dominante} (SATURADO - {contagem}x).",
-                        "estrategia": f"Apostar na QUEBRA. Focar na região dos Disfarçados: {{{disfarçados_str}}}."}
-            else:
-                cavalos = self.CAVALOS_TRIPLOS[terminal_dominante]
-                return {"analise": f"Manipulação de T{terminal_dominante} forte.",
-                        "estrategia": f"Seguir tendência. Focar na região do Cavalo Triplo {{{terminal_dominante},{cavalos[0]},{cavalos[1]}}}."}
+        if terminais:
+            terminal_dominante = max(set(terminais), key=terminais.count)
+            contagem = terminais.count(terminal_dominante)
+            if contagem >= 4:
+                if contagem >= 5: # Saturação
+                    disfarçados_str = ", ".join(map(str, sorted(list(self.DISFARCADOS[terminal_dominante]))))
+                    return {"analise": f"Manipulação de T{terminal_dominante} (SATURADO - {contagem}x).",
+                            "estrategia": f"Apostar na QUEBRA. Focar na região dos Disfarçados: {{{disfarçados_str}}}."}
+                else:
+                    cavalos = self.CAVALOS_TRIPLOS[terminal_dominante]
+                    return {"analise": f"Manipulação de T{terminal_dominante} forte.",
+                            "estrategia": f"Seguir tendência. Focar na região do Cavalo Triplo {{{terminal_dominante},{cavalos[0]},{cavalos[1]}}}."}
 
         return {"analise": "Nenhum padrão claro identificado.", "estrategia": "Aguardar um gatilho."}
 
@@ -143,7 +164,6 @@ if 'analista' not in st.session_state:
 # --- TABELA DE ROLETA INTERATIVA ---
 st.header("Clique no número para adicionar ao histórico (mais recente primeiro):")
 
-# Tabela de botões
 numeros_layout = [
     [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36],
     [-1, 2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35],
@@ -164,7 +184,6 @@ st.divider()
 # ---- PAINEL DE ANÁLISE ----
 st.header("Análise em Tempo Real")
 
-# A exibição do histórico agora está correta (mais recente à esquerda)
 historico_str = ", ".join(map(str, st.session_state.analista.historico))
 st.write(f"**Tempo de Tela:** `{historico_str or 'Vazio'}`")
 
