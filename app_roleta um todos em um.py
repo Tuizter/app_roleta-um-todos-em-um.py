@@ -1,8 +1,8 @@
-# app_roleta um todos em um.py
+# app_roleta.py
 import streamlit as st
 from collections import Counter
 
-# --- CLASSE 'AnalistaRoleta' ATUALIZADA COM AS NOVAS ESTRATÉGIAS ---
+# --- CLASSE 'AnalistaRoleta' ATUALIZADA COM A LÓGICA CORRIGIDA ---
 class AnalistaRoleta:
     def __init__(self):
         self.historico = []
@@ -57,13 +57,15 @@ class AnalistaRoleta:
         return mapa
 
     def adicionar_numero(self, numero):
+        # A nova lógica de inserção garante que o número mais recente fique na posição 0
         if 0 <= numero <= 36:
-            self.historico.append(numero)
+            self.historico.insert(0, numero)
             if len(self.historico) > 20:
-                self.historico.pop(0)
+                self.historico.pop()
 
     def _get_terminais_recentes(self, quantidade):
-        return [self.NUMERO_INFO[n]['terminal'] for n in self.historico[-quantidade:]]
+        # Lê os terminais do início da lista (os mais recentes)
+        return [self.NUMERO_INFO[n]['terminal'] for n in self.historico[:quantidade]]
 
     def _calcular_valor_falso(self, num):
         if num >= 10:
@@ -74,50 +76,44 @@ class AnalistaRoleta:
         if len(self.historico) < 5:
             return {"analise": "Aguardando mais números...", "estrategia": "Insira pelo menos 5 números."}
 
-        h = self.historico
-        terminais_h = self._get_terminais_recentes(len(h))
+        h = self.historico # O mais recente está em h[0]
+        terminais_h = [self.NUMERO_INFO[n]['terminal'] for n in h]
 
         # --- ESTRATÉGIAS DO MÓDULO 2.0 (MAIOR PRIORIDADE) ---
+        # LÓGICA CORRIGIDA para ler o tempo de tela corretamente (mais recente primeiro)
 
-        # 1. Padrões de Cavalo com Quebra (0,1,2,3,7,8,9)
+        # 1. Padrões de Cavalo com Quebra (Ex: ...Quebra, Lateral, Lateral)
         if len(h) >= 3:
-            par_terminais = tuple(sorted(terminais_h[-3:-1]))
+            # A sequência de eventos é: O 3º mais recente (h[2]) foi a quebra,
+            # seguido pelos dois laterais (h[1] e h[0]).
+            par_terminais = tuple(sorted([terminais_h[0], terminais_h[1]]))
             if par_terminais in self.CAVALOS_LATERAIS_PARA_CENTRAL:
                 central_alvo = self.CAVALOS_LATERAIS_PARA_CENTRAL[par_terminais]
                 trindade = set(list(par_terminais) + [central_alvo])
-                if terminais_h[-1] not in trindade: # Confirma que o último número foi uma quebra
-                    return {"analise": f"Padrão de Cavalo com Quebra! Par {par_terminais} + Quebra em {h[-1]}.",
-                            "estrategia": f"Apostar na região do Terminal {central_alvo} por 2 rodadas."}
+                # Verifica se o número ANTES do par foi a quebra
+                if terminais_h[2] not in trindade:
+                    return {"analise": f"Padrão de Cavalo com Quebra! Par ({terminais_h[1]},{terminais_h[0]}) precedido pela quebra {h[2]}.",
+                            "estrategia": f"Apostar na região do Terminal {central_alvo}."}
 
-        # 2. Padrão Vai e Vem
+        # 2. Padrão Vai e Vem (A -> B -> A)
         if len(h) >= 3:
-            secao_a, secao_b, secao_c = self.NUMERO_INFO[h[-3]]['secao'], self.NUMERO_INFO[h[-2]]['secao'], self.NUMERO_INFO[h[-1]]['secao']
+            secao_a, secao_b, secao_c = self.NUMERO_INFO[h[2]]['secao'], self.NUMERO_INFO[h[1]]['secao'], self.NUMERO_INFO[h[0]]['secao']
             if secao_a == secao_c and secao_a != secao_b:
                 return {"analise": f"Gatilho Vai e Vem! Alternância entre {secao_a} e {secao_b}.",
-                        "estrategia": f"Apostar na região de {h[-2]}, buscando retorno para {secao_b}."}
+                        "estrategia": f"Apostar na região de {h[1]}, buscando retorno para {secao_b}."}
 
         # 3. Padrão Falso -> Verdadeiro
         if len(h) >= 2:
-            vf_penultimo = self._calcular_valor_falso(h[-2])
-            if vf_penultimo is not None and vf_penultimo == terminais_h[-1]:
-                vf_ultimo = self._calcular_valor_falso(h[-1])
-                if vf_ultimo is not None:
-                    return {"analise": f"Padrão Falso/Verdadeiro Ativo! {h[-1]} é um T{vf_ultimo} Falso.",
-                            "estrategia": f"Apostar na região do Terminal {vf_ultimo} Verdadeiro."}
-
-        # 4. Padrão Dobra/Metade
-        for i in range(len(h) - 2, 0, -1):
-            if h[i+1] == h[i] * 2 or h[i+1] == h[i] // 2: # Gatilho
-                dobra, metade = h[-1] * 2, h[-1] // 2
-                alvos = [n for n in [dobra, metade] if 0 <= n <= 36]
-                if alvos:
-                    return {"analise": f"Padrão Dobra/Metade Ativo (visto: {h[i]}->{h[i+1]}).",
-                            "estrategia": f"Analisando {h[-1]}, apostar na região dos alvos: {alvos}."}
-                break
+            vf_penultimo = self._calcular_valor_falso(h[1])
+            if vf_penultimo is not None and vf_penultimo == terminais_h[0]: # Se o "falso" anterior previu o "verdadeiro" atual
+                vf_atual = self._calcular_valor_falso(h[0])
+                if vf_atual is not None:
+                    return {"analise": f"Padrão Falso/Verdadeiro Ativo! {h[0]} é um T{vf_atual} Falso.",
+                            "estrategia": f"Apostar na região do Terminal {vf_atual} Verdadeiro."}
 
         # --- ESTRATÉGIAS ORIGINAIS (MENOR PRIORIDADE) ---
-
-        # 5. Manipulação de Terminal
+        
+        # 4. Manipulação de Terminal
         terminais = self._get_terminais_recentes(7)
         terminal_dominante = max(set(terminais), key=terminais.count)
         contagem = terminais.count(terminal_dominante)
@@ -145,23 +141,20 @@ if 'analista' not in st.session_state:
     st.session_state.analista = AnalistaRoleta()
 
 # --- TABELA DE ROLETA INTERATIVA ---
-st.header("Clique no número para adicionar ao histórico:")
+st.header("Clique no número para adicionar ao histórico (mais recente primeiro):")
 
-col_zero, col_table = st.columns([1, 12])
-with col_zero:
-    if st.button("0", key="num_0", use_container_width=True):
-        st.session_state.analista.adicionar_numero(0)
-        st.rerun()
+# Tabela de botões
+numeros_layout = [
+    [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36],
+    [-1, 2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35],
+    [-1, 1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34]
+]
 
-with col_table:
-    numeros = [[3,6,9,12,15,18,21,24,27,30,33,36],
-               [2,5,8,11,14,17,20,23,26,29,32,35],
-               [1,4,7,10,13,16,19,22,25,28,31,34]]
-    
-    cols = st.columns(12)
-    for i in range(12):
-        for j in range(3):
-            num = numeros[j][i]
+cols = st.columns(13)
+for i in range(13):
+    for j in range(3):
+        num = numeros_layout[j][i]
+        if num != -1:
             if cols[i].button(f"{num}", key=f"num_{num}", use_container_width=True):
                 st.session_state.analista.adicionar_numero(num)
                 st.rerun()
@@ -171,6 +164,7 @@ st.divider()
 # ---- PAINEL DE ANÁLISE ----
 st.header("Análise em Tempo Real")
 
+# A exibição do histórico agora está correta (mais recente à esquerda)
 historico_str = ", ".join(map(str, st.session_state.analista.historico))
 st.write(f"**Tempo de Tela:** `{historico_str or 'Vazio'}`")
 
