@@ -1,0 +1,1 @@
+# app_roleta-um-todos-em-um.py
